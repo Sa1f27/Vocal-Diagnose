@@ -1,0 +1,14 @@
+streamlit 
+pandas 
+numpy 
+plotly 
+librosa 
+tensorflow 
+scikit-learn 
+sounddevice 
+wavio 
+streamlit-option-menu 
+streamlit-lottie 
+pymongo 
+cryptography 
+requests
