@@ -2,6 +2,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import pandas as pd
+import streamlit as st
+import librosa
 
 class Visualizer:
     def __init__(self):
@@ -26,7 +28,7 @@ class Visualizer:
             template="plotly_white",
             height=300
         )
-        return fig
+        st.plotly_chart(fig)
     
     def create_spectrogram(self, audio_data, fs):
         spectrogram = librosa.feature.melspectrogram(y=audio_data.flatten(), sr=fs)
@@ -43,7 +45,7 @@ class Visualizer:
             xaxis_title="Time",
             height=300
         )
-        return fig
+        st.plotly_chart(fig)
     
     def create_risk_gauge(self, risk_score):
         fig = go.Figure(go.Indicator(
@@ -61,7 +63,7 @@ class Visualizer:
             }
         ))
         fig.update_layout(height=250)
-        return fig
+        st.plotly_chart(fig)
     
     def create_history_trend(self, history_data):
         fig = go.Figure()
@@ -79,7 +81,7 @@ class Visualizer:
             template="plotly_white",
             height=300
         )
-        return fig
+        st.plotly_chart(fig)
     
     def _get_risk_color(self, score):
         if score > 70:

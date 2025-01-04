@@ -10,7 +10,10 @@ from datetime import datetime
 import os
 import time
 import pandas as pd 
-
+import sqlite3
+import uuid
+import bcrypt
+from visualizations import Visualizer
 from utils import AudioProcessor, HealthAnalyzer, SecurityManager, ReportGenerator
 from database import Database, MockDatabase
 
@@ -79,19 +82,7 @@ def analyze_voice(audio_path, test_type):
     risk_level, risk_score = health_analyzer.analyze_health(features, test_type)
     return risk_level, risk_score
 
-def display_waveform(audio_data, fs):
-    time = np.linspace(0, len(audio_data) / fs, len(audio_data))
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=time, y=audio_data.flatten()))
-    fig.update_layout(
-        title="Voice Waveform",
-        xaxis_title="Time (s)",
-        yaxis_title="Amplitude"
-    )
-    st.plotly_chart(fig)
-import sqlite3
-import uuid
-import bcrypt
+visuali = Visualizer()
 
 # Connect to the database (it will create the file if it doesn't exist)
 conn = sqlite3.connect('health_monitor.db')
@@ -237,18 +228,25 @@ def main():
             
             with col1:
                 if st.button("Start Recording"):
-                    recording, fs = record_audio()
                     
-                    # Save audio
                     filename = f"temp_{int(time.time())}.wav"
+                    recording, fs = record_audio()
                     save_audio(recording, fs, filename)
-                    
-                    # Display waveform
-                    display_waveform(recording, fs)
-                    
-                    # Analyze voice
                     risk_level, risk_score = analyze_voice(filename, test_type)
                     
+                    
+                    # Save audio
+                    
+                    
+                    risk = min(max(risk_score / 100, 0.0), 1.0)
+                    visuali.create_waveform(recording, fs)
+                    visuali.create_spectrogram(recording, fs)
+                    visuali.create_risk_gauge(risk)
+                    visuali.create_history_trend(pd.DataFrame({
+                        'Date': [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] * 3,
+                        'Risk Score': [25, 55, 30]
+                    }))
+                    visuali._get_risk_color(risk)
                     # Display results
                     st.subheader("Analysis Results")
                     st.markdown(f"Risk Level: <span class='risk-{risk_level.lower()}'>{risk_level}</span>", 
