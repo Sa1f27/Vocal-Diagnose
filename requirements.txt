@@ -5,6 +5,7 @@ plotly
 librosa 
 tensorflow 
 scikit-learn 
+bcrypt
 sounddevice 
 wavio 
 streamlit-option-menu 
