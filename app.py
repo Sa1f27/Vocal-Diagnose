@@ -169,13 +169,17 @@ def main():
         st.session_state['user_id'] = None
     if 'login_status' not in st.session_state:
         st.session_state['login_status'] = False
+    
 
-    if not st.session_state['login_status']:
-        st.sidebar.title("Account")
-        page = st.sidebar.radio("Choose", ["Login", "Register"])
-        if page == "Login":
-            login()
-        elif page == "Register":
+    if not st.session_state.get('login_status', False):
+        st.title("🎙️ VocalDiagnose")
+        # Use tabs for Login and Register pages
+        tabs = st.tabs(["Login", "Register"])
+        
+        with tabs[0]:
+            login()  # Call the login function when the Login tab is selected
+        
+        with tabs[1]:
             register()
     else:
 
