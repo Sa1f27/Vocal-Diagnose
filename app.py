@@ -25,9 +25,10 @@ db = MockDatabase()  # Use MockDatabase for local development
 st.set_page_config(
     page_title="VocalDiagnose",
     page_icon="🎙️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered",
+    initial_sidebar_state="collapsed"  # Options: "auto", "expanded", "collapsed"
 )
+
 
 # Custom CSS
 st.markdown("""
