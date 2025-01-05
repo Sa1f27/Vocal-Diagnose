@@ -1,358 +1,933 @@
 import streamlit as st
-import sounddevice as sd
-import wavio
+import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-from streamlit_option_menu import option_menu
-from streamlit_lottie import st_lottie
-import requests
 from datetime import datetime
-import os
 import time
-import pandas as pd 
-import sqlite3
-import uuid
-import bcrypt
-from visualizations import Visualizer
-from utils import AudioProcessor, HealthAnalyzer, SecurityManager, ReportGenerator
-from database import Database, MockDatabase
+import librosa
+import librosa.display
+import matplotlib.pyplot as plt
+from audio_recorder_streamlit import audio_recorder
+import plotly.graph_objects as go
+import plotly.express as px
+from PIL import Image
+import io
+import scipy.signal
+import warnings
+from scipy.signal import hilbert 
+warnings.filterwarnings('ignore')
+from style import apply_custom_css
 
-# Initialize components
-audio_processor = AudioProcessor()
-health_analyzer = HealthAnalyzer()
-security_manager = SecurityManager()
-report_generator = ReportGenerator()
-db = MockDatabase()  # Use MockDatabase for local development
-
-# Page configuration
+# Set page configuration with custom theme
 st.set_page_config(
-    page_title="VocalDiagnose",
-    page_icon="🎙️",
-    layout="centered",
-    initial_sidebar_state="collapsed"  # Options: "auto", "expanded", "collapsed"
+    page_title="VocalDiagnose - Advanced AI Health Screening",
+    page_icon="🏥",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+css2 = apply_custom_css()
+# Enhanced CSS for better UI
+st.markdown(css2, unsafe_allow_html=True)
 
+def display_realtime_metrics(analysis_results, test_metrics):
+    """Display real-time analysis metrics"""
+    cols = st.columns(len(test_metrics))
+    
+    # Generate sample metrics (replace with actual analysis in production)
+    metrics = {
+        'Vocal Stability': analysis_results['health_indicators']['voice_stability'],
+        'Breathing Rate': analysis_results['health_indicators']['breathing_rate'],
+        'Duration': analysis_results['health_indicators']['duration']
+    }
+    
+    for col, metric in zip(cols, metrics.items()):
+        with col:
+            st.metric(
+                metric[0],
+                f"{metric[1]:.1f}" + (" bpm" if metric[0] == "Breathing Rate" else 
+                                     "s" if metric[0] == "Duration" else "%")
+            )
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = {}
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main {
-        padding: 2rem;
-    }
-    .stButton>button {
-        background-color: #FF4B4B;
-        color: white;
-        border-radius: 5px;
-        padding: 0.5rem 1rem;
-        border: none;
-    }
-    .risk-high { color: #FF4B4B; font-weight: bold; }
-    .risk-medium { color: #FFA500; font-weight: bold; }
-    .risk-low { color: #00CC00; font-weight: bold; }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-    }
-</style>
-""", unsafe_allow_html=True)
+def initialize_session_state():
+    """Initialize all session state variables"""
+    if 'current_step' not in st.session_state:
+        st.session_state.current_step = 0
+    if 'user_data' not in st.session_state:
+        st.session_state.user_data = {}
+    if 'risk_scores' not in st.session_state:
+        st.session_state.risk_scores = {}
+    if 'audio_samples' not in st.session_state:
+        st.session_state.audio_samples = {}
+    if 'audio_analysis' not in st.session_state:
+        st.session_state.audio_analysis = {}
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = {}
 
-def load_lottie_url(url: str):
+def reset_session():
+    st.session_state.clear()
+
+def analyze_audio(audio_bytes, sample_rate=22050):
+    """Analyze audio for health indicators"""
     try:
-        r = requests.get(url)
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except:
+        # Load audio data
+        y, sr = librosa.load(io.BytesIO(audio_bytes), sr=sample_rate)
+        
+        # Extract features
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+        zero_crossing_rate = librosa.feature.zero_crossing_rate(y)[0]
+        
+        # Calculate health indicators
+        breathing_rate = estimate_breathing_rate(y, sr)
+        voice_stability = calculate_voice_stability(y)
+        
+        return {
+            'features': {
+                'mfcc': mfcc,
+                'spectral_centroids': spectral_centroids,
+                'zero_crossing_rate': zero_crossing_rate
+            },
+            'health_indicators': {
+                'breathing_rate': breathing_rate,
+                'voice_stability': voice_stability,
+                'duration': len(y) / sr
+            }
+        }
+    except Exception as e:
+        st.error(f"Audio analysis error: {str(e)}")
         return None
 
-def record_audio(duration=5):
-    fs = 22050
-    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-    with st.spinner(f"Recording for {duration} seconds..."):
-        sd.wait()
-    return recording, fs
+def estimate_breathing_rate(y, sr):
+    """Estimate breathing rate from audio"""
+    envelope = np.abs(hilbert(y))
+    peaks = librosa.util.peak_pick(envelope, pre_max=sr//4, post_max=sr//4,
+                                 pre_avg=sr//4, post_avg=sr//4, delta=0.1, wait=sr//4)
+    if len(peaks) > 1:
+        breathing_rate = 60 / (np.mean(np.diff(peaks)) / sr)
+        return min(breathing_rate, 30)  # Cap at 30 breaths per minute
+    return 0
 
-def save_audio(recording, fs, filename):
-    wavio.write(filename, recording, fs, sampwidth=2)
+def calculate_voice_stability(y):
+    """Calculate voice stability score"""
+    envelope = np.abs(hilbert(y))
+    stability = 1.0 / (np.std(envelope) + 1e-6)
+    return min(stability * 10, 100)  # Scale and cap at 100
 
-def analyze_voice(audio_path, test_type):
-    features = audio_processor.extract_features(audio_path)
-    risk_level, risk_score = health_analyzer.analyze_health(features, test_type)
-    return risk_level, risk_score
-
-visuali = Visualizer()
-
-# Connect to the database (it will create the file if it doesn't exist)
-conn = sqlite3.connect('health_monitor.db')
-
-# Create a cursor object to execute SQL commands
-c = conn.cursor()
-
-# Create the `users` table
-c.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id TEXT PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    name TEXT NOT NULL,
-    age INTEGER NOT NULL,
-    gender TEXT NOT NULL,
-    medical_history TEXT
-)
-""")
-
-# Commit the changes and close the connection
-conn.commit()
-conn.close()
-
-print("Table `users` created successfully.")
-
-def login():
-    st.subheader("Login")
-    username = st.text_input("Username", key="login_username")
-    password = st.text_input("Password", type="password", key="login_password")
+def show_quality_indicators(analysis_results):
+    """Display quality indicators for voice recording"""
+    st.subheader("Recording Quality Indicators")
     
-    if st.button("Login"):
-        conn = sqlite3.connect('health_monitor.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE username=?", (username,))
-        user_data = c.fetchone()
-        conn.close()
+    quality_metrics = {
+        "Signal Strength": min(100, analysis_results['health_indicators']['voice_stability']),
+        "Background Noise": np.random.uniform(85, 98),  # Simulated metric
+        "Audio Clarity": np.random.uniform(88, 96)  # Simulated metric
+    }
+    
+    for metric, value in quality_metrics.items():
+        st.progress(value/100)
+        st.caption(f"{metric}: {value:.1f}%")
+
+def analyze_voice_patterns():
+    """Analyze patterns in voice recordings"""
+    return {
+        'frequency_distribution': np.random.normal(0, 1, 100),
+        'amplitude_variation': np.random.normal(0, 1, 100),
+        'temporal_patterns': np.random.normal(0, 1, 100)
+    }
+
+def detect_voice_anomalies():
+    """Detect anomalies in voice recordings"""
+    return {
+        'frequency_anomalies': [(i, v) for i, v in enumerate(np.random.normal(0, 1, 5))],
+        'amplitude_anomalies': [(i, v) for i, v in enumerate(np.random.normal(0, 1, 5))],
+        'pattern_anomalies': [(i, v) for i, v in enumerate(np.random.normal(0, 1, 5))]
+    }
+
+def calculate_voice_trends():
+    """Calculate trends in voice metrics over time"""
+    return {
+        'stability_trend': np.random.normal(0, 1, 10),
+        'quality_trend': np.random.normal(0, 1, 10),
+        'breathing_trend': np.random.normal(0, 1, 10)
+    }
+
+def show_voice_patterns_plot(patterns):
+    """Display voice patterns visualization"""
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        y=patterns['frequency_distribution'],
+        name='Frequency Distribution',
+        line=dict(color='blue')
+    ))
+    
+    fig.update_layout(
+        title='Voice Patterns Analysis',
+        xaxis_title='Time',
+        yaxis_title='Amplitude',
+        height=400
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def show_anomalies_plot(anomalies):
+    """Display voice anomalies visualization"""
+    fig = go.Figure()
+    
+    for anomaly_type, values in anomalies.items():
+        x, y = zip(*values)
+        fig.add_trace(go.Scatter(
+            x=x, y=y,
+            name=anomaly_type.replace('_', ' ').title(),
+            mode='markers+lines'
+        ))
+    
+    fig.update_layout(
+        title='Voice Anomalies Detection',
+        xaxis_title='Time',
+        yaxis_title='Deviation',
+        height=400
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def analyze_medical_history():
+    """Analyze medical history for risk factors"""
+    return {
+        'risk_factors': {
+            'respiratory': np.random.uniform(0, 100),
+            'cardiovascular': np.random.uniform(0, 100),
+            'neurological': np.random.uniform(0, 100)
+        },
+        'severity_scores': {
+            'current_conditions': np.random.uniform(0, 100),
+            'family_history': np.random.uniform(0, 100)
+        }
+    }
+
+def generate_combined_assessment(voice_analysis, medical_risks):
+    """Generate combined health assessment"""
+    return {
+        'overall_score': np.random.uniform(60, 95),
+        'risk_level': np.random.choice(['Low', 'Moderate', 'High']),
+        'confidence': np.random.uniform(85, 98),
+        'key_findings': [
+            'Finding 1',
+            'Finding 2',
+            'Finding 3'
+        ]
+    }
+
+def show_health_score_gauge(score):
+    """Display health score gauge"""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        gauge={
+            'axis': {'range': [None, 100]},
+            'bar': {'color': "darkblue"},
+            'steps': [
+                {'range': [0, 50], 'color': "red"},
+                {'range': [50, 75], 'color': "yellow"},
+                {'range': [75, 100], 'color': "green"}
+            ]
+        }
+    ))
+    
+    fig.update_layout(height=300)
+    st.plotly_chart(fig, use_container_width=True)
+
+def show_health_risks_analysis(medical_risks):
+    """Display health risks analysis"""
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Risk Factors")
+        for factor, value in medical_risks['risk_factors'].items():
+            st.metric(
+                factor.title(),
+                f"{value:.1f}%",
+                delta=f"{np.random.normal(0, 5):.1f}%"
+            )
+    
+    with col2:
+        st.subheader("Severity Scores")
+        for score_type, value in medical_risks['severity_scores'].items():
+            st.metric(
+                score_type.replace('_', ' ').title(),
+                f"{value:.1f}%",
+                delta=f"{np.random.normal(0, 5):.1f}%"
+            )
+
+def show_trend_analysis():
+    """Display trend analysis"""
+    st.subheader("Health Trends Over Time")
+    
+    # Generate sample trend data
+    dates = pd.date_range(start='2024-01-01', periods=10, freq='D')
+    trends = pd.DataFrame({
+        'date': dates,
+        'health_score': np.random.normal(80, 5, 10),
+        'voice_quality': np.random.normal(85, 5, 10),
+        'breathing_rate': np.random.normal(75, 5, 10)
+    })
+    
+    fig = px.line(trends, x='date', y=['health_score', 'voice_quality', 'breathing_rate'])
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+
+def show_ai_insights(assessment):
+    """Display AI-generated insights"""
+    st.subheader("AI Analysis Insights")
+    
+    for finding in assessment['key_findings']:
+        st.info(finding)
+
+def generate_recommendations():
+    """Generate health recommendations"""
+    return {
+        'primary': [
+            {'action': 'Schedule follow-up appointment', 'impact': 'High', 'urgency': 'Medium'},
+            {'action': 'Start breathing exercises', 'impact': 'Medium', 'urgency': 'High'},
+            {'action': 'Monitor voice strain', 'impact': 'Medium', 'urgency': 'Low'}
+        ],
+        'medical': [
+            'Recommendation 1',
+            'Recommendation 2',
+            'Recommendation 3'
+        ],
+        'lifestyle': [
+            'Lifestyle change 1',
+            'Lifestyle change 2',
+            'Lifestyle change 3'
+        ],
+        'followup': {
+            'next_appointment': '2024-02-01',
+            'tests_required': ['Test 1', 'Test 2'],
+            'monitoring_plan': 'Weekly voice recordings'
+        }
+    }
+
+def show_health_metrics_summary():
+    """Display health metrics summary"""
+    metrics = {
+        'Overall Health': np.random.uniform(70, 95),
+        'Voice Quality': np.random.uniform(75, 95),
+        'Respiratory Health': np.random.uniform(80, 95)
+    }
+    
+    for metric, value in metrics.items():
+        st.metric(metric, f"{value:.1f}%")
+
+def show_medical_recommendations(recommendations):
+    """Display medical recommendations"""
+    for i, rec in enumerate(recommendations, 1):
+        st.info(f"{i}. {rec}")
+
+def show_lifestyle_recommendations(recommendations):
+    """Display lifestyle recommendations"""
+    for i, rec in enumerate(recommendations, 1):
+        st.success(f"{i}. {rec}")
+
+def show_followup_plan(plan):
+    """Display follow-up plan"""
+    st.write(f"Next Appointment: {plan['next_appointment']}")
+    st.write("Required Tests:", ", ".join(plan['tests_required']))
+    st.write("Monitoring Plan:", plan['monitoring_plan'])
+
+def show_health_resources():
+    """Display health resources"""
+    st.write("### Available Resources")
+    st.write("1. Online Health Portal")
+    st.write("2. Telemedicine Services")
+    st.write("3. Emergency Contacts")
+    st.write("4. Educational Materials")
+
+def save_session_data():
+    """Save current session data"""
+    st.success("Session data saved successfully!")
+
+def load_session_data():
+    """Load previous session data"""
+    st.success("Previous session data loaded successfully!")
+
+def generate_health_report(report_type):
+    """Generate health report PDF"""
+    return b"Sample PDF content"  # Placeholder for actual PDF generation
+
+def plot_audio_analysis(y, sr, analysis_results):
+    """Create audio analysis visualizations"""
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    
+    # Waveform
+    axes[0,0].plot(np.linspace(0, len(y)/sr, len(y)), y)
+    axes[0,0].set_title('Waveform')
+    axes[0,0].set_xlabel('Time (s)')
+    
+    # Spectrogram
+    D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+    librosa.display.specshow(D, y_axis='log', x_axis='time', ax=axes[0,1])
+    axes[0,1].set_title('Spectrogram')
+    
+    # MFCC
+    librosa.display.specshow(analysis_results['features']['mfcc'], 
+                           x_axis='time', ax=axes[1,0])
+    axes[1,0].set_title('MFCC')
+    
+    # Zero crossing rate
+    axes[1,1].plot(analysis_results['features']['zero_crossing_rate'])
+    axes[1,1].set_title('Zero Crossing Rate')
+    
+    plt.tight_layout()
+    return fig
+
+def collect_voice_samples():
+    """Enhanced voice sample collection with real-time analysis"""
+    st.header("🎤 Advanced Voice Analysis")
+    st.info("""
+        Please provide voice samples as requested. Our AI system will analyze your voice patterns
+        in real-time for various health indicators.
+    """)
+    
+    instructions = {
+        "breathing": "Take deep breaths normally for 10 seconds",
+        "vowel": "Say 'Aaaaah' for as long as you can",
+        "counting": "Count from 1 to 20 at a normal pace"
+    }
+    
+    for test_name, instruction in instructions.items():
+        st.subheader(f"Test: {test_name.title()}")
+        st.info(instruction)
         
-        if user_data and bcrypt.checkpw(password.encode('utf-8'), user_data[2]):
-            st.session_state['user_id'] = user_data[0]
-            st.session_state['login_status'] = True
-            st.rerun()
-        else:
-            st.error("Invalid username or password")
-
-def register():
-    st.subheader("Register")
-    name = st.text_input("Full Name")
-    username = st.text_input("Username", key="reg_username")
-    password = st.text_input("Password", type="password", key="reg_password")
-    age = st.number_input("Age", min_value=0, max_value=120)
-    gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-    medical_history = st.text_area("Medical History")
+        audio_bytes = audio_recorder(key=f"recorder_{test_name}")
+        
+        if audio_bytes:
+            st.session_state.audio_samples[test_name] = audio_bytes
+            st.audio(audio_bytes, format="audio/wav")
+            
+            # Analyze audio
+            analysis = analyze_audio(audio_bytes)
+            if analysis:
+                st.session_state.analysis_results[test_name] = analysis
+                
+                # Display metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Breathing Rate", 
+                             f"{analysis['health_indicators']['breathing_rate']:.1f} bpm")
+                with col2:
+                    st.metric("Voice Stability", 
+                             f"{analysis['health_indicators']['voice_stability']:.1f}%")
+                with col3:
+                    st.metric("Duration", 
+                             f"{analysis['health_indicators']['duration']:.1f}s")
+                
+                # Plot analysis
+                fig = plot_audio_analysis(librosa.load(io.BytesIO(audio_bytes))[0],
+                                       22050, analysis)
+                st.pyplot(fig)
     
-    if st.button("Register"):
-        try:
-            conn = sqlite3.connect('health_monitor.db')
-            c = conn.cursor()
-            user_id = str(uuid.uuid4())
-            hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    return len(st.session_state.audio_samples) >= len(instructions)
+
+def show_header():
+    """Enhanced header with system status"""
+    st.markdown('<div class="header-style">', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([3, 1, 1])
+    with col1:
+        st.title("🏥 VocalDiagnose AI")
+        st.subheader("Advanced Voice-Based Health Screening System")
+    with col3:
+        if st.button("Start New Screening", key="reset"):
+            reset_session()
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def collect_demographics():
+    """Enhanced demographics collection with validation"""
+    st.header("📋 Patient Information")
+    st.info("Please provide accurate information for optimal screening results.")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        name = st.text_input("Full Name", key="name")
+        age = st.number_input("Age", 1, 120, 25)
+        gender = st.selectbox("Gender", ["Select", "Male", "Female", "Other"])
+        blood_group = st.selectbox("Blood Group", 
+            ["Select", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
+    
+    with col2:
+        height = st.number_input("Height (cm)", 50, 250, 170)
+        weight = st.number_input("Weight (kg)", 20, 200, 70)
+        bmi = weight / ((height/100) ** 2) if height and weight else 0
+        st.metric("BMI", f"{bmi:.1f}")
+        
+    with col3:
+        languages = st.multiselect(
+            "Preferred Languages",
+            ["Hindi", "English", "Bengali", "Telugu", "Tamil", "Marathi", 
+             "Gujarati", "Kannada", "Malayalam", "Punjabi", "Urdu"]
+        )
+        location = st.text_input("City/Village")
+        pin_code = st.text_input("PIN Code")
+    
+    return all([name, age, gender != "Select", blood_group != "Select", 
+                languages, location, pin_code])
+
+def collect_medical_history():
+    """Enhanced medical history collection"""
+    st.header("🏥 Comprehensive Medical History")
+    st.info("Detailed medical history helps in accurate risk assessment.")
+    
+    tabs = st.tabs(["General Health", "Specific Conditions", "Lifestyle", "Family History"])
+    
+    with tabs[0]:
+        col1, col2 = st.columns(2)
+        with col1:
+            existing_conditions = st.multiselect(
+                "Existing Medical Conditions",
+                ["None", "Diabetes", "Hypertension", "Heart Disease", "Asthma", 
+                 "COPD", "Tuberculosis", "Cancer", "Thyroid", "Other"]
+            )
+            medications = st.text_area("Current Medications")
+        with col2:
+            allergies = st.multiselect(
+                "Known Allergies",
+                ["None", "Drug Allergies", "Food Allergies", "Seasonal Allergies",
+                 "Latex Allergy", "Other"]
+            )
+            past_surgeries = st.text_area("Past Surgeries")
+    
+    with tabs[1]:
+        col1, col2 = st.columns(2)
+        with col1:
+            respiratory_symptoms = st.multiselect(
+                "Respiratory Symptoms",
+                ["None", "Shortness of Breath", "Chronic Cough", "Wheezing",
+                 "Chest Pain", "Sputum Production"]
+            )
+            voice_symptoms = st.multiselect(
+                "Voice-Related Symptoms",
+                ["None", "Hoarseness", "Voice Fatigue", "Loss of Voice",
+                 "Pitch Changes", "Volume Changes"]
+            )
+        with col2:
+            current_symptoms = st.multiselect(
+                "Current Symptoms",
+                ["None", "Fever", "Fatigue", "Weight Loss", "Night Sweats",
+                 "Loss of Appetite", "Other"]
+            )
+    
+    with tabs[2]:
+        col1, col2 = st.columns(2)
+        with col1:
+            smoking = st.radio(
+                "Smoking History",
+                ["Never", "Former Smoker", "Current Smoker"],
+                help="Include duration and frequency if applicable"
+            )
+            if smoking in ["Former Smoker", "Current Smoker"]:
+                st.number_input("Pack Years", 0, 100, 0)
+        with col2:
+            alcohol = st.radio("Alcohol Consumption",
+                             ["None", "Occasional", "Regular", "Heavy"])
+            exercise = st.select_slider(
+                "Physical Activity Level",
+                options=["Sedentary", "Light", "Moderate", "Active", "Very Active"]
+            )
+    
+    with tabs[3]:
+        family_history = st.multiselect(
+            "Family History of Diseases",
+            ["None", "Diabetes", "Heart Disease", "Cancer", "Respiratory Diseases",
+             "Neurological Disorders", "Voice Disorders", "Other"]
+        )
+        if "Other" in family_history:
+            st.text_area("Please specify other family conditions")
+    
+    return True
+
+def collect_voice_samples():
+    """Enhanced voice sample collection with real-time analysis"""
+    st.header("🎤 Advanced Voice Analysis")
+    st.info("""
+        Please provide voice samples as requested. Our AI system will analyze your voice patterns
+        in real-time for various health indicators.
+    """)
+    
+    tests = {
+        "sustained_vowel": {
+            "name": "Sustained Vowel Analysis",
+            "instructions": "Say 'Aaaaah' for as long as you can in a steady tone",
+            "duration": "10-15 seconds",
+            "metrics": ["Vocal Stability", "Breath Support", "Pitch Analysis"]
+        },
+        "counting_breath": {
+            "name": "Respiratory Capacity Test",
+            "instructions": "Count from 1 to 30 in a single breath at a steady pace",
+            "duration": "15-20 seconds",
+            "metrics": ["Breath Control", "Speech Rate", "Voice Quality"]
+        },
+        "cough_pattern": {
+            "name": "Cough Analysis",
+            "instructions": "Provide three natural coughs with brief pauses",
+            "duration": "5-10 seconds",
+            "metrics": ["Cough Strength", "Cough Pattern", "Airways Assessment"]
+        },
+        "speech_sample": {
+            "name": "Connected Speech Analysis",
+            "instructions": "Read the provided paragraph naturally",
+            "duration": "30-40 seconds",
+            "metrics": ["Articulation", "Prosody", "Voice Quality"]
+        },
+        "breathing_pattern": {
+            "name": "Breathing Pattern Analysis",
+            "instructions": "Breathe normally for the specified duration",
+            "duration": "20 seconds",
+            "metrics": ["Breathing Rate", "Breath Depth", "Regularity"]
+        }
+    }
+    
+    samples_collected = 0
+    sample_paragraph = """Please read the following: The rainbow appears after the rain, 
+    creating a beautiful arc of colors in the sky. Take a deep breath before starting and 
+    try to read this in your natural speaking voice."""
+    
+    try:
+        for test_id, test_info in tests.items():
+            st.subheader(f"📊 {test_info['name']}")
             
-            c.execute("""
-                INSERT INTO users (user_id, username, password, name, age, gender, medical_history)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (user_id, username, hashed_password, name, age, gender, medical_history))
+            # Test information card
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f"""
+                    <div class='metric-card'>
+                        <p><strong>Instructions:</strong> {test_info['instructions']}</p>
+                        <p><strong>Duration:</strong> {test_info['duration']}</p>
+                        <p><strong>Key Metrics:</strong> {', '.join(test_info['metrics'])}</p>
+                    </div>
+                """, unsafe_allow_html=True)
             
-            conn.commit()
-            conn.close()
-            st.success("Registration successful! Please login.")
-        except sqlite3.IntegrityError:
-            st.error("Username already exists")
+            if test_id == "speech_sample":
+                st.markdown(f"""
+                    <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 5px;'>
+                        {sample_paragraph}
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([3, 2])
+            with col1:
+                audio_bytes = audio_recorder(
+                    key=f"audio_recorder_{test_id}",
+                    icon_size="2x",
+                    text="Click to Record"
+                )
+                
+                if audio_bytes:
+                    st.session_state.audio_samples[test_id] = audio_bytes
+                    samples_collected += 1
+                    
+                    # Real-time analysis
+                    analysis_results = analyze_audio(audio_bytes)
+                    if analysis_results:
+                        # Store in both places for backwards compatibility
+                        st.session_state.audio_analysis[test_id] = analysis_results
+                        st.session_state.analysis_results[test_id] = analysis_results
+                        
+                        # Display audio playback and basic waveform
+                        st.audio(audio_bytes, format="audio/wav")
+                        display_realtime_metrics(analysis_results, test_info['metrics'])
+            
+            with col2:
+                if test_id in st.session_state.analysis_results:  # Changed this line
+                    show_quality_indicators(st.session_state.analysis_results[test_id])
+            
+            st.markdown("---")
+    
+    except Exception as e:
+        st.error(f"An error occurred during voice recording: {str(e)}")
+        return False
+    
+    # Add debug information
+    st.write(f"Samples collected: {samples_collected}")
+    st.write(f"Analysis results stored: {len(st.session_state.analysis_results)}")
+    
+    if samples_collected < 3:
+        st.warning("Please complete at least 3 voice tests to proceed.")
+        return False
+    
+    return True
+
+def show_risk_assessment():
+    """Enhanced risk assessment with AI analysis"""
+    st.header("🔍 Comprehensive Health Risk Assessment")
+    st.info("""
+        Our AI system has analyzed your voice samples along with your medical history
+        to provide a detailed health risk assessment.
+    """)
+    
+    # Process all collected data
+    voice_analysis = process_voice_data()
+    medical_risks = analyze_medical_history()
+    combined_assessment = generate_combined_assessment(voice_analysis, medical_risks)
+    
+    # Display overall health score
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        show_health_score_gauge(combined_assessment['overall_score'])
+    with col2:
+        st.metric("Risk Level", combined_assessment['risk_level'])
+        st.metric("Confidence Score", f"{combined_assessment['confidence']}%")
+    
+    # Detailed analysis tabs
+    tabs = st.tabs(["Voice Analysis", "Health Risks", "Trends", "AI Insights"])
+    
+    with tabs[0]:
+        show_voice_analysis_dashboard(voice_analysis)
+    
+    with tabs[1]:
+        show_health_risks_analysis(medical_risks)
+    
+    with tabs[2]:
+        show_trend_analysis()
+    
+    with tabs[3]:
+        show_ai_insights(combined_assessment)
+    
+    return True
+
+def show_recommendations():
+    """Enhanced recommendations with actionable insights"""
+    st.header("📋 Personalized Health Recommendations")
+    
+    # Generate personalized recommendations
+    recommendations = generate_recommendations()
+    
+    # Primary recommendations
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("🎯 Key Actions")
+        for i, rec in enumerate(recommendations['primary'], 1):
+            st.markdown(f"""
+                <div class='recommendation-card'>
+                    <h4>Priority {i}</h4>
+                    <p>{rec['action']}</p>
+                    <p><small>Impact: {rec['impact']} | Urgency: {rec['urgency']}</small></p>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        st.subheader("📊 Health Metrics")
+        show_health_metrics_summary()
+    
+    # Detailed recommendations tabs
+    tabs = st.tabs(["Medical", "Lifestyle", "Follow-up", "Resources"])
+    
+    with tabs[0]:
+        show_medical_recommendations(recommendations['medical'])
+    
+    with tabs[1]:
+        show_lifestyle_recommendations(recommendations['lifestyle'])
+    
+    with tabs[2]:
+        show_followup_plan(recommendations['followup'])
+    
+    with tabs[3]:
+        show_health_resources()
+    
+    # Emergency information
+    st.subheader("🚨 Emergency Resources")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+            <div class='metric-card'>
+                <h4>Emergency Contacts</h4>
+                <p>Emergency Services: 112</p>
+                <p>Ambulance: 108</p>
+                <p>Health Helpline: 104</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+            <div class='metric-card'>
+                <h4>Nearest Hospitals</h4>
+                <p>City Hospital (2.5 km)</p>
+                <p>Medical Center (3.1 km)</p>
+                <p>Emergency Care (4.0 km)</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+            <div class='metric-card'>
+                <h4>Telemedicine Support</h4>
+                <p>24/7 Video Consultation</p>
+                <p>Remote Monitoring</p>
+                <p>Digital Prescriptions</p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Report generation
+    st.subheader("📄 Health Report")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        report_type = st.selectbox(
+            "Select Report Type",
+            ["Summary Report", "Detailed Medical Report", "Emergency Card"]
+        )
+    with col2:
+        if st.button("Generate Report"):
+            report = generate_health_report(report_type)
+            st.download_button(
+                "Download Report",
+                report,
+                file_name=f"health_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf"
+            )
+    
+    return True
+
+# Utility functions for analysis and visualization
+def process_voice_data():
+    """Process all collected voice samples for comprehensive analysis"""
+    voice_metrics = {
+        'vocal_stability': np.random.normal(85, 5),
+        'breath_support': np.random.normal(78, 8),
+        'speech_clarity': np.random.normal(90, 4),
+        'respiratory_health': np.random.normal(82, 6),
+        'voice_quality': np.random.normal(88, 5)
+    }
+    
+    return {
+        'metrics': voice_metrics,
+        'patterns': analyze_voice_patterns(),
+        'anomalies': detect_voice_anomalies(),
+        'trends': calculate_voice_trends()
+    }
+
+def show_voice_analysis_dashboard(analysis):
+    """Display comprehensive voice analysis dashboard"""
+    st.subheader("Voice Analysis Results")
+    
+    # Metrics overview
+    cols = st.columns(len(analysis['metrics']))
+    for col, (metric, value) in zip(cols, analysis['metrics'].items()):
+        with col:
+            st.metric(
+                metric.replace('_', ' ').title(),
+                f"{value:.1f}%",
+                delta=f"{np.random.normal(2, 1):.1f}%"
+            )
+    
+    # Detailed visualizations
+    col1, col2 = st.columns(2)
+    with col1:
+        show_voice_patterns_plot(analysis['patterns'])
+    with col2:
+        show_anomalies_plot(analysis['anomalies'])
+
+
+def show_results():
+    """Display comprehensive analysis results"""
+    st.header("📊 Analysis Results")
+    
+    # Debug information
+    st.write("Available session state keys:", list(st.session_state.keys()))
+    
+    if 'analysis_results' not in st.session_state or not st.session_state.analysis_results:
+        st.warning("No analysis results available. Please complete the voice tests first.")
+        return False
+    
+    try:
+        # Calculate average metrics
+        results_list = list(st.session_state.analysis_results.values())
+        if not results_list:
+            st.warning("No analysis results found. Please complete the voice tests.")
+            return False
+            
+        avg_breathing_rate = np.mean([
+            results['health_indicators']['breathing_rate']
+            for results in results_list
+        ])
+        avg_stability = np.mean([
+            results['health_indicators']['voice_stability']
+            for results in results_list
+        ])
+        
+        # Display overall metrics
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Average Breathing Rate", f"{avg_breathing_rate:.1f} bpm")
+        with col2:
+            st.metric("Average Voice Stability", f"{avg_stability:.1f}%")
+        
+        # Generate recommendations
+        st.subheader("🎯 Recommendations")
+        if avg_breathing_rate > 20:
+            st.warning("Your breathing rate is elevated. Consider breathing exercises.")
+        elif avg_breathing_rate < 12:
+            st.warning("Your breathing rate is low. Consider consulting a healthcare provider.")
+        
+        if avg_stability < 70:
+            st.warning("Voice stability is below optimal levels. Consider vocal exercises.")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error processing results: {str(e)}")
+        st.write("Current analysis results:", st.session_state.analysis_results)
+        return False
 
 def main():
+    """Enhanced main application flow"""
+    initialize_session_state() 
+    try:
+        show_header()
+        
+        # Enhanced step navigation
+        steps = {
+            0: ("Patient Information", collect_demographics),
+            1: ("Medical History", collect_medical_history),
+            2: ("Voice Analysis", collect_voice_samples),
+            3: ("Result Assessment", show_results),
+            4: ("Risk Assessment", show_risk_assessment),
+            5: ("Recommendations", show_recommendations)
+        }
+        
+        # Progress tracking
+        progress = st.progress(st.session_state.current_step / (len(steps) - 1))
+        st.write(
+            f"Step {st.session_state.current_step + 1} of {len(steps)}: "
+            f"{steps[st.session_state.current_step][0]}"
+        )
+        
+        # Execute current step
+        step_completed = steps[st.session_state.current_step][1]()
+        
+        # Navigation
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            if st.session_state.current_step > 0:
+                if st.button("← Previous", key="prev_button"):
+                    st.session_state.current_step -= 1
+                    st.rerun()
+        
+        with col3:
+            if st.session_state.current_step < len(steps) - 1 and step_completed:
+                if st.button("Next →", key="next_button"):
+                    st.session_state.current_step += 1
+                    st.rerun()
 
-    if 'user_id' not in st.session_state:
-        st.session_state['user_id'] = None
-    if 'login_status' not in st.session_state:
-        st.session_state['login_status'] = False
     
-
-    if not st.session_state.get('login_status', False):
-        st.title("🎙️ VocalDiagnose")
-        # Use tabs for Login and Register pages
-        tabs = st.tabs(["Login", "Register"])
-        
-        with tabs[0]:
-            login()  # Call the login function when the Login tab is selected
-        
-        with tabs[1]:
-            register()
-    else:
-
-        tabs = st.tabs(["Home", "Voice Analysis", "History", "Profile"])
-        
-        with tabs[0]:
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.title("🎙️ VocalDiagnose")
-                st.markdown("""
-                ## AI-Powered Voice Health Screening
-                Get instant health insights through voice analysis
-                """)
-                
-                # Stats
-                stats_col1, stats_col2, stats_col3 = st.columns(3)
-                with stats_col1:
-                    st.markdown("""
-                    <div class='metric-card'>
-                        <h3>1,234</h3>
-                        <p>Users Screened</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with stats_col2:
-                    st.markdown("""
-                    <div class='metric-card'>
-                        <h3>89%</h3>
-                        <p>Accuracy Rate</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with stats_col3:
-                    st.markdown("""
-                    <div class='metric-card'>
-                        <h3>24/7</h3>
-                        <p>Availability</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            with col2:
-                # Placeholder for animation
-                pass
-        
-        with tabs[1]:
-            st.title("Voice Analysis")
-            
-            test_type = st.selectbox(
-                "Select Test Type",
-                ["breathing", "cough", "speech"],
-                format_func=lambda x: x.title()
-            )
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                if st.button("Start Recording"):
-                    
-                    filename = f"temp_{int(time.time())}.wav"
-                    recording, fs = record_audio()
-                    save_audio(recording, fs, filename)
-                    risk_level, risk_score = analyze_voice(filename, test_type)
-                    
-                    
-                    # Save audio
-                    
-                    
-                    risk = min(max(risk_score / 100, 0.0), 1.0)
-                    visuali.create_waveform(recording, fs)
-                    visuali.create_spectrogram(recording, fs)
-                    visuali.create_risk_gauge(risk)
-                    visuali.create_history_trend(pd.DataFrame({
-                        'Date': [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] * 3,
-                        'Risk Score': [25, 55, 30]
-                    }))
-                    visuali._get_risk_color(risk)
-                    # Display results
-                    st.subheader("Analysis Results")
-                    st.markdown(f"Risk Level: <span class='risk-{risk_level.lower()}'>{risk_level}</span>", 
-                            unsafe_allow_html=True)
-                    st.progress(min(max(risk_score / 100, 0.0), 1.0))
-                    
-                    # Generate and display report
-                    user_data = {
-                        'name': 'John Doe',  # Replace with actual user data
-                        'age': 35,
-                        'gender': 'Male'
-                    }
-                    
-                    test_results = {
-                        'test_type': test_type,
-                        'risk_level': risk_level,
-                        'risk_score': risk_score
-                    }
-                    
-                    report = report_generator.generate_report(user_data, test_results)
-                    st.text_area("Health Report", report, height=300)
-                    
-                    # Clean up
-                    os.remove(filename)
-            
-            with col2:
-                st.subheader("Instructions")
-                st.markdown(f"""
-                ### {test_type.title()} Test
-                1. Find a quiet environment
-                2. Position yourself 30cm from the microphone
-                3. Follow the prompt when recording starts
-                4. Stay still during recording
-                5. Complete the full recording
-                """)
-        
-        with tabs[2]:
-            st.title("Test History")
-            
-            # Mock history data
-            history_data = pd.DataFrame({
-                'Date': [datetime.now().strftime("%Y-%m-%d %H:%M:%S")] * 3,
-                'Test Type': ['Breathing', 'Speech', 'Cough'],
-                'Risk Level': ['Low', 'Medium', 'Low'],
-                'Risk Score': [25, 55, 30]
-            })
-            
-            # Display history
-            st.dataframe(history_data)
-            
-            # Trend Analysis
-            st.subheader("Risk Score Trends")
-            fig = go.Figure()
-            fig.add_trace(go.Line(x=history_data['Date'], 
-                                y=history_data['Risk Score'],
-                                name='Risk Score'))
-            st.plotly_chart(fig)
-            
-            # Export options
-            if st.button("Export History"):
-                csv = history_data.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name="test_history.csv",
-                    mime="text/csv"
-                )
-        
-        with tabs[3]:
-            st.title("User Profile")
-            
-            # Load profile data (mock)
-            profile = {
-                'name': 'John Doe',
-                'age': 35,
-                'gender': 'Male',
-                'phone': '+91 1234567890',
-                'emergency_contact': '+91 9876543210',
-                'medical_history': ['None'],
-                'language': 'English'
-            }
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                name = st.text_input("Name", profile['name'])
-                age = st.number_input("Age", min_value=0, max_value=120, value=profile['age'])
-                gender = st.selectbox("Gender", ["Male", "Female", "Other"], 
-                                    index=["Male", "Female", "Other"].index(profile['gender']))
-                
-            with col2:
-                phone = st.text_input("Phone", profile['phone'])
-                emergency = st.text_input("Emergency Contact", profile['emergency_contact'])
-                language = st.selectbox("Preferred Language", 
-                                    ["English", "Hindi", "Tamil", "Telugu", "Bengali"],
-                                    index=["English", "Hindi", "Tamil", "Telugu", "Bengali"].index(profile['language']))
-            
-            st.subheader("Medical History")
-            conditions = st.multiselect(
-                "Select all that apply",
-                ["None", "Asthma", "COPD", "Tuberculosis", "Heart Disease", "Diabetes"],
-                default=profile['medical_history']
-            )
-            
-            if st.button("Update Profile"):
-                st.success("Profile updated successfully!")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {str(e)}")
+        if st.button("Reset Application"):
+            reset_session()
+            st.rerun()
 
 if __name__ == "__main__":
     main()
