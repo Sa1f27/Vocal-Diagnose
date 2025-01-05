@@ -16,12 +16,20 @@ import warnings
 from scipy.signal import hilbert 
 warnings.filterwarnings('ignore')
 from style import apply_custom_css
+import io
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.units import inch
+
+
 
 # Set page configuration with custom theme
 st.set_page_config(
     page_title="VocalDiagnose - Advanced AI Health Screening",
     page_icon="🏥",
-    layout="wide",
+    layout= "wide",
     initial_sidebar_state="expanded"
 )
 css2 = apply_custom_css()
@@ -283,7 +291,7 @@ def show_ai_insights(assessment):
     st.subheader("AI Analysis Insights")
     
     for finding in assessment['key_findings']:
-        st.info(finding)
+        st.success(finding)
 
 def generate_recommendations():
     """Generate health recommendations"""
@@ -324,7 +332,7 @@ def show_health_metrics_summary():
 def show_medical_recommendations(recommendations):
     """Display medical recommendations"""
     for i, rec in enumerate(recommendations, 1):
-        st.info(f"{i}. {rec}")
+        st.success(f"{i}. {rec}")
 
 def show_lifestyle_recommendations(recommendations):
     """Display lifestyle recommendations"""
@@ -386,7 +394,7 @@ def plot_audio_analysis(y, sr, analysis_results):
 def collect_voice_samples():
     """Enhanced voice sample collection with real-time analysis"""
     st.header("🎤 Advanced Voice Analysis")
-    st.info("""
+    st.success("""
         Please provide voice samples as requested. Our AI system will analyze your voice patterns
         in real-time for various health indicators.
     """)
@@ -399,7 +407,7 @@ def collect_voice_samples():
     
     for test_name, instruction in instructions.items():
         st.subheader(f"Test: {test_name.title()}")
-        st.info(instruction)
+        st.success(instruction)
         
         audio_bytes = audio_recorder(key=f"recorder_{test_name}")
         
@@ -445,21 +453,24 @@ def show_header():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def collect_demographics():
-    """Enhanced demographics collection with validation"""
+    """Enhanced demographics collection with validation and default values."""
     st.header("📋 Patient Information")
-    st.info("Please provide accurate information for optimal screening results.")
+    st.success("Please provide accurate information for optimal screening results.")
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        name = st.text_input("Full Name", key="name")
-        age = st.number_input("Age", 1, 120, 25)
-        gender = st.selectbox("Gender", ["Select", "Male", "Female", "Other"])
-        blood_group = st.selectbox("Blood Group", 
-            ["Select", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
+        name = st.text_input("Full Name", value="Saif", key="name")
+        age = st.number_input("Age", min_value=1, max_value=120, value=25)
+        gender = st.selectbox("Gender", ["Select", "Male", "Female", "Other"], index=1)
+        blood_group = st.selectbox(
+            "Blood Group", 
+            ["Select", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"], 
+            index=1
+        )
     
     with col2:
-        height = st.number_input("Height (cm)", 50, 250, 170)
-        weight = st.number_input("Weight (kg)", 20, 200, 70)
+        height = st.number_input("Height (cm)", min_value=50, max_value=250, value=175)
+        weight = st.number_input("Weight (kg)", min_value=20, max_value=200, value=74)
         bmi = weight / ((height/100) ** 2) if height and weight else 0
         st.metric("BMI", f"{bmi:.1f}")
         
@@ -467,10 +478,12 @@ def collect_demographics():
         languages = st.multiselect(
             "Preferred Languages",
             ["Hindi", "English", "Bengali", "Telugu", "Tamil", "Marathi", 
-             "Gujarati", "Kannada", "Malayalam", "Punjabi", "Urdu"]
+             "Gujarati", "Kannada", "Malayalam", "Punjabi", "Urdu"],
+            default=["English"]
         )
-        location = st.text_input("City/Village")
-        pin_code = st.text_input("PIN Code")
+        location = st.text_input("City/Village", value="Hyderabad")
+        pin_code = st.text_input("PIN Code", value="500001")
+
     
     return all([name, age, gender != "Select", blood_group != "Select", 
                 languages, location, pin_code])
@@ -478,7 +491,7 @@ def collect_demographics():
 def collect_medical_history():
     """Enhanced medical history collection"""
     st.header("🏥 Comprehensive Medical History")
-    st.info("Detailed medical history helps in accurate risk assessment.")
+    st.success("Detailed medical history helps in accurate risk assessment.")
     
     tabs = st.tabs(["General Health", "Specific Conditions", "Lifestyle", "Family History"])
     
@@ -497,7 +510,7 @@ def collect_medical_history():
                 ["None", "Drug Allergies", "Food Allergies", "Seasonal Allergies",
                  "Latex Allergy", "Other"]
             )
-            past_surgeries = st.text_area("Past Surgeries")
+            past_surgeries = st.text_area("Past Surgeries", value='Nothing')
     
     with tabs[1]:
         col1, col2 = st.columns(2)
@@ -544,14 +557,14 @@ def collect_medical_history():
              "Neurological Disorders", "Voice Disorders", "Other"]
         )
         if "Other" in family_history:
-            st.text_area("Please specify other family conditions")
+            st.text_area("Please specify other family conditions", value='Diabetes')
     
     return True
 
 def collect_voice_samples():
     """Enhanced voice sample collection with real-time analysis"""
     st.header("🎤 Advanced Voice Analysis")
-    st.info("""
+    st.success("""
         Please provide voice samples as requested. Our AI system will analyze your voice patterns
         in real-time for various health indicators.
     """)
@@ -620,7 +633,7 @@ def collect_voice_samples():
             with col1:
                 audio_bytes = audio_recorder(
                     key=f"audio_recorder_{test_id}",
-                    icon_size="2x",
+                    icon_size="1x",
                     text="Click to Record"
                 )
                 
@@ -662,7 +675,7 @@ def collect_voice_samples():
 def show_risk_assessment():
     """Enhanced risk assessment with AI analysis"""
     st.header("🔍 Comprehensive Health Risk Assessment")
-    st.info("""
+    st.success("""
         Our AI system has analyzed your voice samples along with your medical history
         to provide a detailed health risk assessment.
     """)
@@ -696,6 +709,108 @@ def show_risk_assessment():
         show_ai_insights(combined_assessment)
     
     return True
+
+def generate_pdf_report(patient_data, analysis_results):
+    """Generate a PDF report with patient data and analysis results"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    styles.add(ParagraphStyle(
+        name='CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30
+    ))
+    
+    # Title
+    story.append(Paragraph("Medical Assessment Report", styles['CustomTitle']))
+    story.append(Spacer(1, 12))
+    
+    # Patient Information
+    story.append(Paragraph("Patient Information", styles['Heading2']))
+    patient_info = [
+        ["Name:", patient_data.get('name', 'Saif')],
+        ["Age:", str(patient_data.get('age', '20')) + " years"],
+        ["Gender:", patient_data.get('gender', 'Male')],
+        ["Assessment Date:", datetime.now().strftime("%Y-%m-%d")],
+    ]
+    
+    t = Table(patient_info, colWidths=[2*inch, 4*inch])
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+    
+    # Health Scores
+    story.append(Paragraph("Health Assessment Scores", styles['Heading2']))
+    
+    # Add health scores table instead of plot
+    health_scores = [
+        ["Metric", "Score"],
+        ["Voice Stability", f"{analysis_results.get('voice_stability', 0):.1f}%"],
+        ["Breathing Rate", f"{analysis_results.get('breathing_rate', 0):.1f} bpm"],
+        ["Overall Health", f"{analysis_results.get('overall_score', 0):.1f}%"]
+    ]
+    
+    t = Table(health_scores, colWidths=[3*inch, 3*inch])
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+    
+    # Risk Assessment
+    story.append(Paragraph("Risk Assessment", styles['Heading2']))
+    risk_data = [
+        ["Condition", "Risk Level", "Recommendation"],
+        ["Respiratory Issues", "Low", "Regular monitoring"],
+        ["Voice Disorders", "Medium", "Voice therapy recommended"],
+        ["Sleep Apnea", "Low", "Follow sleep hygiene practices"],
+    ]
+    
+    t = Table(risk_data, colWidths=[2*inch, 1.5*inch, 3*inch])
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+    
+    # Recommendations
+    story.append(Paragraph("Recommendations", styles['Heading2']))
+    recommendations = analysis_results.get('recommendations', [
+        "Schedule follow-up assessment",
+        "Practice breathing exercises",
+        "Monitor voice strain levels"
+    ])
+    for rec in recommendations:
+        story.append(Paragraph(f"• {rec}", styles['Normal']))
+        story.append(Spacer(1, 6))
+    
+    # Disclaimer
+    story.append(Spacer(1, 30))
+    story.append(Paragraph("Disclaimer:", styles['Heading4']))
+    story.append(Paragraph(
+        "This report is generated based on AI-powered voice analysis and should be reviewed "
+        "by a healthcare professional. The recommendations provided are general in nature "
+        "and should not replace professional medical advice.",
+        styles['Normal']
+    ))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 def show_recommendations():
     """Enhanced recommendations with actionable insights"""
@@ -770,6 +885,7 @@ def show_recommendations():
             </div>
         """, unsafe_allow_html=True)
     
+
     # Report generation
     st.subheader("📄 Health Report")
     col1, col2 = st.columns([2, 1])
@@ -780,11 +896,35 @@ def show_recommendations():
         )
     with col2:
         if st.button("Generate Report"):
-            report = generate_health_report(report_type)
+            # Prepare data for report
+            patient_data = st.session_state.get('user_data', {})
+            
+            # Prepare analysis results
+            analysis_results = {
+                'voice_stability': np.mean([
+                    results['health_indicators']['voice_stability']
+                    for results in st.session_state.analysis_results.values()
+                ]) if st.session_state.analysis_results else 0,
+                'breathing_rate': np.mean([
+                    results['health_indicators']['breathing_rate']
+                    for results in st.session_state.analysis_results.values()
+                ]) if st.session_state.analysis_results else 0,
+                'overall_score': np.random.uniform(70, 95),  # Replace with actual calculation
+                'recommendations': [
+                    "Schedule follow-up assessment",
+                    "Practice breathing exercises",
+                    "Monitor voice strain levels"
+                ]
+            }
+            
+            # Generate PDF
+            pdf_buffer = generate_pdf_report(patient_data, analysis_results)
+            
+            # Provide download button
             st.download_button(
-                "Download Report",
-                report,
-                file_name=f"health_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                label="Download Report",
+                data=pdf_buffer,
+                file_name=f"medical_report_{datetime.now().strftime('%Y%m%d')}.pdf",
                 mime="application/pdf"
             )
     
