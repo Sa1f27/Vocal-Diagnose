@@ -489,77 +489,86 @@ def collect_demographics():
                 languages, location, pin_code])
 
 def collect_medical_history():
-    """Enhanced medical history collection"""
-    st.header("🏥 Comprehensive Medical History")
-    st.success("Detailed medical history helps in accurate risk assessment.")
-    
-    tabs = st.tabs(["General Health", "Specific Conditions", "Lifestyle", "Family History"])
-    
-    with tabs[0]:
-        col1, col2 = st.columns(2)
-        with col1:
+    """Compact medical history collection with nested columns"""
+    st.header("🏥 Medical History Assessment")
+    st.subheader("Please provide accurate information for better health assessment")
+
+    # Health Status Section
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### Current Health")
+        subcol1, subcol2 = st.columns(2)
+        with subcol1:
             existing_conditions = st.multiselect(
-                "Existing Medical Conditions",
-                ["None", "Diabetes", "Hypertension", "Heart Disease", "Asthma", 
-                 "COPD", "Tuberculosis", "Cancer", "Thyroid", "Other"]
-            )
-            medications = st.text_area("Current Medications")
-        with col2:
+                "Medical Conditions",
+                ["None", "Diabetes", "Hypertension", "Heart Disease", "Asthma", "Other"])
+            medications = st.text_area("Medications", height=50)
+        with subcol2:
             allergies = st.multiselect(
-                "Known Allergies",
-                ["None", "Drug Allergies", "Food Allergies", "Seasonal Allergies",
-                 "Latex Allergy", "Other"]
-            )
-            past_surgeries = st.text_area("Past Surgeries", value='Nothing')
-    
-    with tabs[1]:
-        col1, col2 = st.columns(2)
-        with col1:
-            respiratory_symptoms = st.multiselect(
-                "Respiratory Symptoms",
-                ["None", "Shortness of Breath", "Chronic Cough", "Wheezing",
-                 "Chest Pain", "Sputum Production"]
-            )
-            voice_symptoms = st.multiselect(
-                "Voice-Related Symptoms",
-                ["None", "Hoarseness", "Voice Fatigue", "Loss of Voice",
-                 "Pitch Changes", "Volume Changes"]
-            )
-        with col2:
-            current_symptoms = st.multiselect(
-                "Current Symptoms",
-                ["None", "Fever", "Fatigue", "Weight Loss", "Night Sweats",
-                 "Loss of Appetite", "Other"]
-            )
-    
-    with tabs[2]:
-        col1, col2 = st.columns(2)
-        with col1:
+                "Allergies",
+                ["None", "Drugs", "Food", "Seasonal", "Latex", "Other"])
+            past_surgeries = st.text_area("Surgeries", height=50)
+
+    with col2:
+        st.markdown("##### Symptoms")
+        subcol3, subcol4 = st.columns(2)
+        with subcol3:
+            respiratory = st.multiselect(
+                "Respiratory",
+                ["None", "Shortness of Breath", "Cough", "Wheezing", "Other"])
+            voice = st.multiselect(
+                "Voice Issues",
+                ["None", "Hoarseness", "Fatigue", "Loss"])
+        with subcol4:
+            current = st.multiselect(
+                "General",
+                ["None", "Fever", "Fatigue", "Weight Loss", "Other"])
+            if "Other" in current:
+                st.text_input("Specify Other")
+
+    # Lifestyle & Family Section
+    col3, col4 = st.columns(2)
+    with col3:
+        st.markdown("##### Lifestyle")
+        subcol5, subcol6, subcol7 = st.columns(3)
+        with subcol5:
             smoking = st.radio(
-                "Smoking History",
-                ["Never", "Former Smoker", "Current Smoker"],
-                help="Include duration and frequency if applicable"
-            )
-            if smoking in ["Former Smoker", "Current Smoker"]:
-                st.number_input("Pack Years", 0, 100, 0)
-        with col2:
-            alcohol = st.radio("Alcohol Consumption",
-                             ["None", "Occasional", "Regular", "Heavy"])
+                "Smoking",
+                ["Never", "Former", "Current"],
+                label_visibility="collapsed")
+            if smoking in ["Former", "Current"]:
+                st.number_input("Pack Years", 0, 100, 0, label_visibility="collapsed")
+        with subcol6:
+            alcohol = st.radio(
+                "Alcohol",
+                ["None", "Occasional", "Regular"],
+                label_visibility="collapsed")
+        with subcol7:
             exercise = st.select_slider(
-                "Physical Activity Level",
-                options=["Sedentary", "Light", "Moderate", "Active", "Very Active"]
-            )
+                "Activity",
+                ["Low", "Medium", "High"],
+                label_visibility="collapsed")
+
+    with col4:
+        st.markdown("##### Family History")
+        subcol8, subcol9 = st.columns(2)
+        with subcol8:
+            family_history = st.multiselect(
+                "Family Conditions",
+                ["None", "Diabetes", "Heart Disease", "Cancer", "Other"])
+        with subcol9:
+            if "Other" in family_history:
+                st.text_input("Specify Family History")
+
+    # Submit Section
+    col5, col6, col7 = st.columns([1,1,1])
+    with col6:
+        submitted = st.button("Submit History", type="primary", use_container_width=True)
     
-    with tabs[3]:
-        family_history = st.multiselect(
-            "Family History of Diseases",
-            ["None", "Diabetes", "Heart Disease", "Cancer", "Respiratory Diseases",
-             "Neurological Disorders", "Voice Disorders", "Other"]
-        )
-        if "Other" in family_history:
-            st.text_area("Please specify other family conditions", value='Diabetes')
-    
-    return True
+    if submitted:
+        st.success("Submitted successfully!")
+        return True
+    return False
 
 def collect_voice_samples():
     """Enhanced voice sample collection with real-time analysis"""
@@ -607,70 +616,146 @@ def collect_voice_samples():
     creating a beautiful arc of colors in the sky. Take a deep breath before starting and 
     try to read this in your natural speaking voice."""
     
+    # Add articulation test
+    tests["articulation_test"] = {
+        "name": "Articulation Practice",
+        "instructions": "Read the following tongue twisters with clear pronunciation: 'Peter Piper picked a peck of pickled peppers' and 'She sells seashells by the seashore'",
+        "duration": "45 seconds",
+        "metrics": ["pronunciation_clarity", "speech_rate", "accuracy"]
+}
+
     try:
-        for test_id, test_info in tests.items():
-            st.subheader(f"📊 {test_info['name']}")
-            
-            # Test information card
-            col1, col2 = st.columns([2, 1])
+        col1, col2, col3 = st.columns(3)
+        test_pairs = list(tests.items())
+        
+        for i in range(0, len(test_pairs), 3):
             with col1:
-                st.markdown(f"""
-                    <div class='metric-card'>
-                        <p><strong>Instructions:</strong> {test_info['instructions']}</p>
-                        <p><strong>Duration:</strong> {test_info['duration']}</p>
-                        <p><strong>Key Metrics:</strong> {', '.join(test_info['metrics'])}</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            if test_id == "speech_sample":
-                st.markdown(f"""
-                    <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 5px;'>
-                        {sample_paragraph}
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns([3, 2])
-            with col1:
-                audio_bytes = audio_recorder(
-                    key=f"audio_recorder_{test_id}",
-                    icon_size="1x",
-                    text="Click to Record"
-                )
-                
-                if audio_bytes:
-                    st.session_state.audio_samples[test_id] = audio_bytes
-                    samples_collected += 1
+                if i < len(test_pairs):
+                    test_id, test_info = test_pairs[i]
+                    st.subheader(f"📊 {test_info['name']}")
                     
-                    # Real-time analysis
-                    analysis_results = analyze_audio(audio_bytes)
-                    if analysis_results:
-                        # Store in both places for backwards compatibility
-                        st.session_state.audio_analysis[test_id] = analysis_results
-                        st.session_state.analysis_results[test_id] = analysis_results
+                    st.markdown(f"""
+                        <div class='metric-card' style='background-color: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;'>
+                            <p><strong>Instructions:</strong> {test_info['instructions']}</p>
+                            <p><strong>Duration:</strong> {test_info['duration']}</p>
+                            <p><strong>Key Metrics:</strong> {', '.join(test_info['metrics'])}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if test_id == "speech_sample":
+                        st.markdown(f"""
+                            <div style='background-color: #e9ecef; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;'>
+                                {sample_paragraph}
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    audio_bytes = audio_recorder(
+                        key=f"audio_recorder_{test_id}",
+                        icon_size="1x",
+                        text="Click to Record"
+                    )
+                    
+                    if audio_bytes:
+                        st.session_state.audio_samples[test_id] = audio_bytes
+                        samples_collected += 1
                         
-                        # Display audio playback and basic waveform
-                        st.audio(audio_bytes, format="audio/wav")
-                        display_realtime_metrics(analysis_results, test_info['metrics'])
+                        analysis_results = analyze_audio(audio_bytes)
+                        if analysis_results:
+                            st.session_state.audio_analysis[test_id] = analysis_results
+                            st.session_state.analysis_results[test_id] = analysis_results
+                            
+                            st.audio(audio_bytes, format="audio/wav")
+                            display_realtime_metrics(analysis_results, test_info['metrics'])
             
             with col2:
-                if test_id in st.session_state.analysis_results:  # Changed this line
-                    show_quality_indicators(st.session_state.analysis_results[test_id])
-            
-            st.markdown("---")
-    
+                if i + 1 < len(test_pairs):
+                    test_id, test_info = test_pairs[i + 1]
+                    st.subheader(f"📊 {test_info['name']}")
+                    
+                    st.markdown(f"""
+                        <div class='metric-card' style='background-color: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;'>
+                            <p><strong>Instructions:</strong> {test_info['instructions']}</p>
+                            <p><strong>Duration:</strong> {test_info['duration']}</p>
+                            <p><strong>Key Metrics:</strong> {', '.join(test_info['metrics'])}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if test_id == "speech_sample":
+                        st.markdown(f"""
+                            <div style='background-color: #e9ecef; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;'>
+                                {sample_paragraph}
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    audio_bytes = audio_recorder(
+                        key=f"audio_recorder_{test_id}",
+                        icon_size="1x",
+                        text="Click to Record"
+                    )
+                    
+                    if audio_bytes:
+                        st.session_state.audio_samples[test_id] = audio_bytes
+                        samples_collected += 1
+                        
+                        analysis_results = analyze_audio(audio_bytes)
+                        if analysis_results:
+                            st.session_state.audio_analysis[test_id] = analysis_results
+                            st.session_state.analysis_results[test_id] = analysis_results
+                            
+                            st.audio(audio_bytes, format="audio/wav")
+                            display_realtime_metrics(analysis_results, test_info['metrics'])
+
+            with col3:
+                if i + 2 < len(test_pairs):
+                    test_id, test_info = test_pairs[i + 2]
+                    st.subheader(f"📊 {test_info['name']}")
+                    
+                    st.markdown(f"""
+                        <div class='metric-card' style='background-color: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;'>
+                            <p><strong>Instructions:</strong> {test_info['instructions']}</p>
+                            <p><strong>Duration:</strong> {test_info['duration']}</p>
+                            <p><strong>Key Metrics:</strong> {', '.join(test_info['metrics'])}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if test_id == "speech_sample":
+                        st.markdown(f"""
+                            <div style='background-color: #e9ecef; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;'>
+                                {sample_paragraph}
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    audio_bytes = audio_recorder(
+                        key=f"audio_recorder_{test_id}",
+                        icon_size="1x",
+                        text="Click to Record"
+                    )
+                    
+                    if audio_bytes:
+                        st.session_state.audio_samples[test_id] = audio_bytes
+                        samples_collected += 1
+                        
+                        analysis_results = analyze_audio(audio_bytes)
+                        if analysis_results:
+                            st.session_state.audio_analysis[test_id] = analysis_results
+                            st.session_state.analysis_results[test_id] = analysis_results
+                            
+                            st.audio(audio_bytes, format="audio/wav")
+                            display_realtime_metrics(analysis_results, test_info['metrics'])
+
+        st.markdown("---")
+        st.write(f"Samples collected: {samples_collected}")
+        st.write(f"Analysis results stored: {len(st.session_state.analysis_results)}")
+        
+        if samples_collected < 3:
+            st.warning("Please complete at least 3 voice tests to proceed.")
+            return False
+        
+        return True
+
     except Exception as e:
         st.error(f"An error occurred during voice recording: {str(e)}")
         return False
-    
-    # Add debug information
-    st.write(f"Samples collected: {samples_collected}")
-    st.write(f"Analysis results stored: {len(st.session_state.analysis_results)}")
-    
-    if samples_collected < 3:
-        st.warning("Please complete at least 3 voice tests to proceed.")
-        return False
-    
-    return True
 
 def show_risk_assessment():
     """Enhanced risk assessment with AI analysis"""
