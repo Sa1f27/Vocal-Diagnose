@@ -63,7 +63,7 @@ VocalDiagnose stands out through its innovative approach to healthcare screening
 - Database: MongoDB for flexible data storage
 
 ### Performance Metrics
-- Processing Time: <2 seconds per analysis
+- Processing Time: <3 seconds per analysis
 - API Response: ~200ms average
 - Daily Capacity: 1000+ screenings
 - Dataset Size: 5,288 samples
@@ -95,6 +95,17 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
+![Screenshot 2025-01-06 212806](https://github.com/user-attachments/assets/acc5dd35-eaa8-4f9f-8cf8-62e623b18e34)
+
+![Screenshot 2025-01-06 211527](https://github.com/user-attachments/assets/c8d2709f-1a31-4d1b-a1e0-e7573390bd93)
+
+![Screenshot 2025-01-06 211308](https://github.com/user-attachments/assets/04d72b32-378a-415b-95a2-429e34919bb0)
+
+![Screenshot 2025-01-06 211403](https://github.com/user-attachments/assets/90d4e226-53d0-452c-9ad4-19ebd9acd7fc)
+
+![Screenshot 2025-01-06 215400](https://github.com/user-attachments/assets/9f7d95a5-ed6f-486f-999e-89d1195f4158)
+
+![Screenshot 2025-01-06 214507](https://github.com/user-attachments/assets/baa016eb-7234-48e8-804e-5cca8be447d0)
 
 ## 📊 Input Parameters
 
